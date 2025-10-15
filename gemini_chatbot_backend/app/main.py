@@ -26,7 +26,7 @@ app = FastAPI(
     ],
 )
 
-# Restrict CORS to the frontend URL
+# Restrict CORS to the frontend URL(s)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -60,6 +60,22 @@ def health_check():
     return {"message": "Healthy"}
 
 
+# PUBLIC_INTERFACE
+@app.get(
+    "/chat",
+    tags=["chat"],
+    summary="Chat GET helper",
+)
+def chat_get_info():
+    """
+    Provide usage info for the chat endpoint.
+
+    Returns:
+    - JSON object with a short instruction message for clients to use POST /chat.
+    """
+    return {"message": "Use POST /chat with JSON payload { 'message': '...'} to chat."}
+
+
 @app.post(
     "/chat",
     response_model=ChatResponse,
@@ -70,7 +86,7 @@ def health_check():
 async def chat(request: ChatRequest) -> ChatResponse:
     """
     PUBLIC_INTERFACE
-    Handle a chat message by proxying it to Google Gemini and returning the reply.
+    Handle a chat message by proxying it to Google Gemini (if configured) or returning an echo reply.
 
     Parameters:
     - request: ChatRequest
@@ -80,18 +96,20 @@ async def chat(request: ChatRequest) -> ChatResponse:
     - ChatResponse
       A JSON object with a single 'reply' field which contains the model's response text.
 
+    Behavior:
+    - If GEMINI_API_KEY is not configured, returns an echo reply to ensure a successful 200 response for development.
+    - If GEMINI_API_KEY is configured, proxies the request to Gemini and returns the model's reply.
+
     Error responses:
-    - 400 with {'error': string} when request is invalid or configuration is missing
+    - 400 with {'error': string} when request is invalid
     - 500 with {'error': string} for upstream or unexpected errors
     """
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    # Development-friendly fallback if GEMINI_API_KEY isn't set:
     if not GEMINI_API_KEY:
-        raise HTTPException(
-            status_code=400,
-            detail="GEMINI_API_KEY is not configured. Set it in the environment.",
-        )
+        return ChatResponse(reply=f"Echo: {request.message}")
 
     # Build Gemini REST payload (generateContent)
     payload = {
